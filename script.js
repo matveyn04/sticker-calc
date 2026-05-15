@@ -1,3 +1,14 @@
+const MAX_STICKER_SIZE_BY_MATERIAL = {
+    film: {
+        width: 280,
+        height: 416
+    },
+    paper: {
+        width: 270,
+        height: 380
+    }
+};
+
 function getUsefulArea(material) {
 
     return {
@@ -76,10 +87,6 @@ function getCuttingPricePerSheet(total) {
 
 function getMarkup(cost) {
 
-    if (cost < 200) {
-        return null;
-    }
-
     if (cost <= 300) return 4;
 
     if (cost <= 400) return 3.5;
@@ -118,19 +125,184 @@ function calculateFinalPrice(cost) {
     const markup =
         getMarkup(cost);
 
-    let price =
+    const price =
         cost * markup;
 
     return Math.ceil(price / 50) * 50;
 }
 
+let warningTimer = null;
+
+function showSizeWarning(message) {
+
+    const warningEl =
+        document.getElementById('sizeWarning');
+
+    const textEl =
+        document.getElementById('sizeWarningText');
+
+    const barEl =
+        document.getElementById('sizeWarningBar');
+
+    if (!warningEl || !textEl || !barEl) {
+        return;
+    }
+
+    warningEl.classList.remove('visible');
+    barEl.classList.remove('animate');
+
+    void warningEl.offsetWidth;
+
+    textEl.innerText = message;
+    warningEl.classList.add('visible');
+    barEl.classList.add('animate');
+
+    if (warningTimer) {
+        clearTimeout(warningTimer);
+    }
+
+    warningTimer = setTimeout(() => {
+        warningEl.classList.remove('visible');
+        barEl.classList.remove('animate');
+    }, 10000);
+}
+
+function getMaterialStickerLimits(materialKey, useful) {
+
+    const materialCap =
+        MAX_STICKER_SIZE_BY_MATERIAL[materialKey];
+
+    if (!materialCap) {
+        return {
+            width: Math.max(useful.width - BLEED, 1),
+            height: Math.max(useful.height - BLEED, 1)
+        };
+    }
+
+    return {
+        width: Math.min(materialCap.width, Math.max(useful.width - BLEED, 1)),
+        height: Math.min(materialCap.height, Math.max(useful.height - BLEED, 1))
+    };
+}
+
+function clampStickerSizeToUsefulArea(stickerW, stickerH, limits) {
+
+    let width = stickerW;
+    let height = stickerH;
+    const adjustments = [];
+
+    if (width > limits.width) {
+        width = limits.width;
+        adjustments.push('ширина');
+    }
+
+    if (height > limits.height) {
+        height = limits.height;
+        adjustments.push('высота');
+    }
+
+    return {
+        width,
+        height,
+        adjusted: adjustments.length > 0,
+        adjustedFields: adjustments
+    };
+}
+
+function ensureWarningUi() {
+
+    if (document.getElementById('sizeWarning')) {
+        return;
+    }
+
+    const container =
+        document.querySelector('.calc-container');
+
+    const copyBtn =
+        document.getElementById('copyBtn');
+
+    if (!container || !copyBtn) {
+        return;
+    }
+
+    const warningEl = document.createElement('div');
+    warningEl.id = 'sizeWarning';
+    warningEl.className = 'size-warning';
+    warningEl.innerHTML = `
+        <div id="sizeWarningText" class="size-warning-text"></div>
+        <div class="size-warning-track">
+            <div id="sizeWarningBar" class="size-warning-bar"></div>
+        </div>
+    `;
+
+    copyBtn.insertAdjacentElement('beforebegin', warningEl);
+
+    if (!document.getElementById('sizeWarningStyles')) {
+        const styles = document.createElement('style');
+        styles.id = 'sizeWarningStyles';
+        styles.textContent = `
+            .size-warning {
+                margin: 0 0 16px 0;
+                padding: 12px;
+                border-radius: 12px;
+                background: rgb(226, 226, 226);
+                border: 1px solid rgb(0, 238, 255);
+                color: #ff0000;
+                opacity: 0;
+                transform: translateY(-4px);
+                pointer-events: none;
+                transition: opacity .2s ease, transform .2s ease;
+            }
+            .size-warning.visible {
+                opacity: 1;
+                transform: translateY(0);
+            }
+            .size-warning-text {
+                font-size: 13px;
+                font-weight: 700;
+                margin-bottom: 8px;
+            }
+            .size-warning-track {
+                height: 4px;
+                width: 100%;
+                border-radius: 99px;
+                background: rgba(146, 64, 14, 0.2);
+                overflow: hidden;
+            }
+            .size-warning-bar {
+                width: 100%;
+                height: 100%;
+                transform-origin: left;
+                transform: scaleX(1);
+                background: #f59e0b;
+            }
+            .size-warning-bar.animate {
+                animation: sizeWarningCountdown 10s linear forwards;
+            }
+            @keyframes sizeWarningCountdown {
+                from { transform: scaleX(1); }
+                to { transform: scaleX(0); }
+            }
+        `;
+        document.head.appendChild(styles);
+    }
+}
+
 function calculateStickerJob() {
 
+    ensureWarningUi();
+
+    const widthInput =
+        document.getElementById('stickW');
+
+    const heightInput =
+        document.getElementById('stickH');
+
     let stickerW =
-        parseFloat(document.getElementById('stickW').value) || 0;
+        parseFloat(widthInput.value) || 0;
 
     let stickerH =
-        parseFloat(document.getElementById('stickH').value) || 0;
+        parseFloat(heightInput.value) || 0;
 
     const qty =
         parseInt(document.getElementById('orderQty').value) || 0;
@@ -155,22 +327,28 @@ function calculateStickerJob() {
     const useful =
         getUsefulArea(material);
 
-    let warning = '';
+    const stickerLimits =
+        getMaterialStickerLimits(materialKey, useful);
 
-    if (stickerW > useful.width) {
+    widthInput.max = Math.floor(stickerLimits.width);
+    heightInput.max = Math.floor(stickerLimits.height);
 
-        stickerW = useful.width;
+    const clamped =
+        clampStickerSizeToUsefulArea(stickerW, stickerH, stickerLimits);
 
-        warning =
-            'Размер превышает полезную область листа';
-    }
+    if (clamped.adjusted) {
+        stickerW = clamped.width;
+        stickerH = clamped.height;
 
-    if (stickerH > useful.height) {
+        widthInput.value = Math.floor(stickerW);
+        heightInput.value = Math.floor(stickerH);
 
-        stickerH = useful.height;
+        const adjustedText =
+            clamped.adjustedFields.length === 2
+                ? 'Размер автоматически уменьшен до полезной области листа'
+                : `${clamped.adjustedFields[0][0].toUpperCase()}${clamped.adjustedFields[0].slice(1)} автоматически уменьшена до полезной области листа`;
 
-        warning =
-            'Размер превышает полезную область листа';
+        showSizeWarning(adjustedText);
     }
 
     const normal =
@@ -214,18 +392,8 @@ function calculateStickerJob() {
     const cuttingCost =
         sheets.totalSheets * cutPerSheet;
 
-    /*
-    Себестоимость для отображения —
-    ТОЛЬКО материал
-    */
-
     const visibleSelfCost =
         materialCost;
-
-    /*
-    Для клиента считаем:
-    материал + резка
-    */
 
     const fullCost =
         materialCost + cuttingCost;
@@ -266,18 +434,6 @@ function calculateStickerJob() {
             <span>За 1 шт.</span>
             <b>${(finalPrice / (qty * kinds)).toFixed(2)} ₽</b>
         </div>
-
-        ${
-            warning
-                ? `
-                <div class="info-item" style="grid-column:1/3;">
-                    <b style="color:#f87171;">
-                        ${warning}
-                    </b>
-                </div>
-                `
-                : ''
-        }
     `;
 
     drawSheet(
